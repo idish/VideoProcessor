@@ -20,6 +20,7 @@ import android.provider.MediaStore;
 import android.support.v4.app.ActivityCompat;
 import android.support.v7.app.AppCompatActivity;
 import android.support.v7.widget.Toolbar;
+import android.util.Log;
 import android.util.Pair;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -135,6 +136,23 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onClick(View v) {
                 if (selectedVideoUri != null) {
+//                    File moviesDir =getTempMovieDir();
+//                    progressDialog.show();
+//                    String filePrefix = "speed_video";
+//                    String fileExtn = ".mp4";
+//                    File dest = new File(moviesDir, filePrefix + fileExtn);
+//                    int fileNo = 0;
+//                    while (dest.exists()) {
+//                        fileNo++;
+//                        dest = new File(moviesDir, filePrefix + fileNo + fileExtn);
+//                    }
+//                    filePath = dest.getAbsolutePath();
+//                    try {
+//                        VideoProcessor.changeVideoSpeed(getApplicationContext(), selectedVideoUri, filePath, 2f);
+//                    } catch (Exception e) {
+//                        Log.d("lol", "loll");
+//                    }
+
                     executeSpeedVideo((int) (rangeSeekBar.getCurrentRange()[0] * 1000), (int) (rangeSeekBar.getCurrentRange()[1] * 1000),
                             2f);
                 } else {
@@ -516,10 +534,10 @@ public class MainActivity extends AppCompatActivity {
                     VideoProcessor.processor(getApplicationContext())
                             .input(selectedVideoUri)
                             .output(filePath)
-                            .startTimeMs(startMs)
-                            .endTimeMs(endMs)
+//                            .startTimeMs(startMs)
+//                            .endTimeMs(endMs)
                             .speed(speed)
-                            .changeAudioSpeed(true)
+//                            .changeAudioSpeed(true)
                             .process();
                     long e = System.currentTimeMillis();
                     CL.w("减速已完成，耗时:" + (e - s) / 1000f + "s");

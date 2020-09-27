@@ -395,7 +395,7 @@ public class VideoUtil {
         values.put(MediaStore.Video.Media.MIME_TYPE, mime);
         values.put(MediaStore.Video.Media.DESCRIPTION, description);
         if (Build.VERSION.SDK_INT >= 29) {
-            values.put(MediaStore.Video.Media.RELATIVE_PATH,"Movies/VideoProcessor");
+            values.put(MediaStore.Video.Media.RELATIVE_PATH,"Movies/BoomerangVideoMaker");
         }
         Uri url = null;
         String stringUri = null;
