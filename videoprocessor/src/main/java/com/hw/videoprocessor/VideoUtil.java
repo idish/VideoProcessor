@@ -27,6 +27,8 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import static com.hw.videoprocessor.VideoProcessor.DEFAULT_I_FRAME_INTERVAL;
+
 /**
  * Created by huangwei on 2018/3/8 0008.
  */
@@ -77,6 +79,62 @@ public class VideoUtil {
             fileList.add(file);
         }
         return fileList;
+    }
+
+    public static void createBoomerangVideo(List<File> inputVideos, String outputVideo) throws Exception {
+        if (inputVideos == null || inputVideos.size() == 0) {
+            return;
+        }
+        int iFrameInterval = DEFAULT_I_FRAME_INTERVAL;
+        MediaMetadataRetriever retriever = new MediaMetadataRetriever();
+        retriever.setDataSource(inputVideos.get(0).getAbsolutePath());
+        int combineBitrate = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE));
+        MediaExtractor extractor = new MediaExtractor();
+        extractor.setDataSource(inputVideos.get(0).getAbsolutePath());
+        int videoIndex = selectTrack(extractor, false);
+
+        MediaMuxer mediaMuxer = new MediaMuxer(outputVideo, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
+        int videoMuxerIndex = mediaMuxer.addTrack(extractor.getTrackFormat(videoIndex));
+        mediaMuxer.start();
+
+        long videoFrameTimeUs;
+        long audioFrameTimeUs = 0;
+        long baseFrameTimeUs = 0;
+
+        for (int i = 0; i < inputVideos.size(); i++) {
+            if (i > 0) {
+                extractor = new MediaExtractor();
+                extractor.setDataSource(inputVideos.get(i).getAbsolutePath());
+            }
+            videoFrameTimeUs = appendVideoTrack(extractor, mediaMuxer, videoMuxerIndex,
+                    null, null, baseFrameTimeUs, combineBitrate,
+                    iFrameInterval, i == 0, false);
+
+            baseFrameTimeUs = videoFrameTimeUs > audioFrameTimeUs ? videoFrameTimeUs : audioFrameTimeUs;
+            CL.i("片段" + i + "已合成,audioFrameTime:" + audioFrameTimeUs / 1000f + " videoFrameTime:" + videoFrameTimeUs / 1000f);
+            baseFrameTimeUs += 33 * 1000;
+            extractor.release();
+
+//            //反序当前片段
+//            long s1 = System.currentTimeMillis();
+//            String out = inputVideos.get(i).getAbsolutePath() + ".rev";
+//            VideoProcessor.reverseVideoNoDecode(new VideoProcessor.MediaSource(inputVideos.get(i).getAbsolutePath()), out, true);
+//            long e1 = System.currentTimeMillis();
+//            CL.e("reverseVideoNoDecode:" + (e1 - s1) + "ms");
+//            //合并反序片段
+//            extractor = new MediaExtractor();
+//            extractor.setDataSource(out);
+//
+//            videoFrameTimeUs = appendVideoTrack(extractor, mediaMuxer, videoMuxerIndex, null, null,
+//                    baseFrameTimeUs, combineBitrate, iFrameInterval, false,
+//                    i == inputVideos.size() - 1);
+//            baseFrameTimeUs = videoFrameTimeUs > audioFrameTimeUs ? videoFrameTimeUs : audioFrameTimeUs;
+//            CL.i("反序片段" + i + "已合成,audioFrameTime:" + audioFrameTimeUs / 1000f + " videoFrameTime:" + videoFrameTimeUs / 1000f);
+//            baseFrameTimeUs += 33 * 1000;
+//            extractor.release();
+//            new File(out).delete();
+        }
+        mediaMuxer.release();
     }
 
     /**
