@@ -88,7 +88,7 @@ public class VideoUtil {
         int iFrameInterval = DEFAULT_I_FRAME_INTERVAL;
         MediaMetadataRetriever retriever = new MediaMetadataRetriever();
         retriever.setDataSource(inputVideos.get(0).getAbsolutePath());
-        int combineBitrate = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE));
+        int combineBitrate = 5000000;
         MediaExtractor extractor = new MediaExtractor();
         extractor.setDataSource(inputVideos.get(0).getAbsolutePath());
         int videoIndex = selectTrack(extractor, false);
@@ -114,7 +114,6 @@ public class VideoUtil {
             CL.i("片段" + i + "已合成,audioFrameTime:" + audioFrameTimeUs / 1000f + " videoFrameTime:" + videoFrameTimeUs / 1000f);
             baseFrameTimeUs += 33 * 1000;
             extractor.release();
-            
         }
         mediaMuxer.release();
     }

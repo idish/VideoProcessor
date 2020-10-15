@@ -79,6 +79,7 @@ public class VideoProcessor {
         processor(context)
                 .input(input)
                 .output(output)
+                .bitrate(5000000)
                 .speed(speed)
                 .process();
     }
@@ -208,7 +209,7 @@ public class VideoProcessor {
                 processor(context)
                         .input(temp2File.getAbsolutePath())
                         .output(output)
-                        .bitrate(oriBitrate)
+                        .bitrate(5000000)
                         .iFrameInterval(oriIFrameInterval)
                         .progressListener(stepProgress)
                         .process();
@@ -327,7 +328,7 @@ public class VideoProcessor {
         extractor.selectTrack(videoTrackIndex);
         MediaFormat videoTrackFormat = extractor.getTrackFormat(videoTrackIndex);
         long videoDurationUs = videoTrackFormat.getLong(MediaFormat.KEY_DURATION);
-        long audioDurationUs = 0;
+
         int videoMuxerTrackIndex = mediaMuxer.addTrack(videoTrackFormat);
 
         mediaMuxer.start();
