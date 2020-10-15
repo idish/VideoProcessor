@@ -114,25 +114,7 @@ public class VideoUtil {
             CL.i("片段" + i + "已合成,audioFrameTime:" + audioFrameTimeUs / 1000f + " videoFrameTime:" + videoFrameTimeUs / 1000f);
             baseFrameTimeUs += 33 * 1000;
             extractor.release();
-
-//            //反序当前片段
-//            long s1 = System.currentTimeMillis();
-//            String out = inputVideos.get(i).getAbsolutePath() + ".rev";
-//            VideoProcessor.reverseVideoNoDecode(new VideoProcessor.MediaSource(inputVideos.get(i).getAbsolutePath()), out, true);
-//            long e1 = System.currentTimeMillis();
-//            CL.e("reverseVideoNoDecode:" + (e1 - s1) + "ms");
-//            //合并反序片段
-//            extractor = new MediaExtractor();
-//            extractor.setDataSource(out);
-//
-//            videoFrameTimeUs = appendVideoTrack(extractor, mediaMuxer, videoMuxerIndex, null, null,
-//                    baseFrameTimeUs, combineBitrate, iFrameInterval, false,
-//                    i == inputVideos.size() - 1);
-//            baseFrameTimeUs = videoFrameTimeUs > audioFrameTimeUs ? videoFrameTimeUs : audioFrameTimeUs;
-//            CL.i("反序片段" + i + "已合成,audioFrameTime:" + audioFrameTimeUs / 1000f + " videoFrameTime:" + videoFrameTimeUs / 1000f);
-//            baseFrameTimeUs += 33 * 1000;
-//            extractor.release();
-//            new File(out).delete();
+            
         }
         mediaMuxer.release();
     }

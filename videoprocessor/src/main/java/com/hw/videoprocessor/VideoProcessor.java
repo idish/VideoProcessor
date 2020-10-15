@@ -83,7 +83,65 @@ public class VideoProcessor {
                 .process();
     }
 
+    public static void createKeyFrameOnlyVideo(Context context, MediaSource input, String output, @Nullable VideoProgressListener listener) throws Exception {
+        File outputFile = new File(output);
+        try {
+            MediaExtractor extractor = new MediaExtractor();
+            input.setDataSource(extractor);
+            int trackIndex = VideoUtil.selectTrack(extractor, false);
+            extractor.selectTrack(trackIndex);
+            int keyFrameCount = 0;
+            int frameCount = 0;
+            List<Long> frameTimeStamps = new ArrayList<>();
+            while (true) {
+                int flags = extractor.getSampleFlags();
+                if (flags > 0 && (flags & MediaExtractor.SAMPLE_FLAG_SYNC) != 0) {
+                    keyFrameCount++;
+                }
+                long sampleTime = extractor.getSampleTime();
+                if (sampleTime < 0) {
+                    break;
+                }
+                frameTimeStamps.add(sampleTime);
+                frameCount++;
+                extractor.advance();
+            }
+            extractor.release();
 
+            if (frameCount == keyFrameCount || frameCount == keyFrameCount + 1) {
+                // already key frame
+                return;
+            }
+
+            VideoMultiStepProgress stepProgress = new VideoMultiStepProgress(new float[]{0.45f, 0.1f, 0.45f}, listener);
+            stepProgress.setCurrentStep(0);
+            float bitrateMultiple = (frameCount - keyFrameCount) / (float) keyFrameCount + 1;
+            MediaMetadataRetriever retriever = new MediaMetadataRetriever();
+            input.setDataSource(retriever);
+            int oriBitrate = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE));
+            int duration = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION));
+            try {
+                processor(context)
+                        .input(input)
+                        .output(outputFile.getAbsolutePath())
+                        .bitrate((int) (oriBitrate * bitrateMultiple))
+                        .iFrameInterval(0)
+                        .progressListener(stepProgress)
+                        .process();
+            } catch (MediaCodec.CodecException e) {
+                CL.e(e);
+                /** Nexus5上-1代表全关键帧*/
+                processor(context)
+                        .input(input)
+                        .output(outputFile.getAbsolutePath())
+                        .bitrate((int) (oriBitrate * bitrateMultiple))
+                        .iFrameInterval(-1)
+                        .progressListener(stepProgress)
+                        .process();
+            }
+        }  finally {
+        }
+    }
     /**
      * 对视频先检查，如果不是全关键帧，先处理成所有帧都是关键帧，再逆序
      */
