@@ -84,6 +84,17 @@ public class VideoProcessor {
                 .process();
     }
 
+    public static void cutAndChangeVideoSpeed(Context context, Uri input, String output, float speed, int startTimeMs, int endTimeMs) throws Exception {
+        processor(context)
+                .input(input)
+                .output(output)
+                .bitrate(5000000)
+                .startTimeMs(startTimeMs)
+                .endTimeMs(endTimeMs)
+                .speed(speed)
+                .process();
+    }
+
     public static void createKeyFrameOnlyVideo(Context context, MediaSource input, String output, @Nullable VideoProgressListener listener) throws Exception {
         File outputFile = new File(output);
         try {
@@ -269,15 +280,17 @@ public class VideoProcessor {
         progressAve.setEndTimeMs(processor.endTimeMs == null ? durationMs : processor.endTimeMs);
         AtomicBoolean decodeDone = new AtomicBoolean(false);
         CountDownLatch muxerStartLatch = new CountDownLatch(1);
-        VideoEncodeThread encodeThread = new VideoEncodeThread(extractor, mediaMuxer,processor.bitrate,
-                resultWidth, resultHeight, processor.iFrameInterval, processor.frameRate == null ? DEFAULT_FRAME_RATE : processor.frameRate, videoIndex,
-                decodeDone, muxerStartLatch);
+
         int srcFrameRate = VideoUtil.getFrameRate(processor.input);
         if (srcFrameRate <= 0) {
             srcFrameRate = (int) Math.ceil(VideoUtil.getAveFrameRate(processor.input));
         }
+
+        VideoEncodeThread encodeThread = new VideoEncodeThread(extractor, mediaMuxer,processor.bitrate,
+                resultWidth, resultHeight, processor.iFrameInterval, processor.frameRate == null ? srcFrameRate : processor.frameRate, videoIndex,
+                decodeDone, muxerStartLatch);
         VideoDecodeThread decodeThread = new VideoDecodeThread(encodeThread, extractor, processor.startTimeMs, processor.endTimeMs, srcFrameRate,
-                processor.frameRate == null ? DEFAULT_FRAME_RATE : processor.frameRate, processor.speed, processor.dropFrames, videoIndex, decodeDone);
+                processor.frameRate == null ? srcFrameRate : processor.frameRate, processor.speed, processor.dropFrames, videoIndex, decodeDone);
 
         encodeThread.setProgressAve(progressAve);
         decodeThread.start();
@@ -960,7 +973,7 @@ public class VideoProcessor {
         /**
          * 帧率超过指定帧率时是否丢帧
          */
-        private boolean dropFrames = true;
+        private boolean dropFrames = false;
 
         public Processor(Context context) {
             this.context = context;

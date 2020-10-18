@@ -423,48 +423,4 @@ public class VideoUtil {
         int height = format.getInteger(MediaFormat.KEY_HEIGHT);
         return new Pair<>(width,height);
     }
-
-    /**
-     * 保存文件 存储位置：/storage/emulated/0/DICM/path1/path2/new_photo_file.png
-     * String path = savaVideoToMediaStore("videp.mp4", "new video file descrition", "video/mp4");
-     */
-    public static String savaVideoToMediaStore(Context context,String videoPath,String name, String description, String mime) {
-        ContentValues values = new ContentValues();
-        values.put(MediaStore.Video.Media.DISPLAY_NAME, name);
-        values.put(MediaStore.Video.Media.MIME_TYPE, mime);
-        values.put(MediaStore.Video.Media.DESCRIPTION, description);
-        if (Build.VERSION.SDK_INT >= 29) {
-            values.put(MediaStore.Video.Media.RELATIVE_PATH,"Movies/BoomerangVideoMaker");
-        }
-        Uri url = null;
-        String stringUri = null;
-        ContentResolver cr = context.getContentResolver();
-        try {
-            url = cr.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values);
-            if (url == null) {
-                return null;
-            }
-            byte[] buffer = new byte[1024];
-            ParcelFileDescriptor descriptor = cr.openFileDescriptor(url, "w");
-            FileOutputStream outputStream = new FileOutputStream(descriptor.getFileDescriptor());
-            InputStream inputStream = new FileInputStream(videoPath);
-            while (true) {
-                int readSize = inputStream.read(buffer);
-                if (readSize == -1) {
-                    break;
-                }
-                outputStream.write(buffer, 0, readSize);
-            }
-            outputStream.flush();
-        } catch (Exception e) {
-            e.printStackTrace();
-            if (url != null) {
-                cr.delete(url, null, null);
-            }
-        }
-        if (url != null) {
-            stringUri = url.toString();
-        }
-        return stringUri;
-    }
 }
