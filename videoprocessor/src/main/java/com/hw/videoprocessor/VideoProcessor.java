@@ -79,7 +79,6 @@ public class VideoProcessor {
         processor(context)
                 .input(input)
                 .output(output)
-                .bitrate(5000000)
                 .speed(speed)
                 .process();
     }
@@ -88,7 +87,6 @@ public class VideoProcessor {
         processor(context)
                 .input(input)
                 .output(output)
-                .bitrate(5000000)
                 .startTimeMs(startTimeMs)
                 .endTimeMs(endTimeMs)
                 .speed(speed)
@@ -220,7 +218,6 @@ public class VideoProcessor {
                 processor(context)
                         .input(temp2File.getAbsolutePath())
                         .output(output)
-                        .bitrate(5000000)
                         .iFrameInterval(oriIFrameInterval)
                         .progressListener(stepProgress)
                         .process();

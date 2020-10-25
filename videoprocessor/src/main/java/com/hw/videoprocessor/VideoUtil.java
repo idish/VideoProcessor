@@ -88,7 +88,8 @@ public class VideoUtil {
         int iFrameInterval = DEFAULT_I_FRAME_INTERVAL;
         MediaMetadataRetriever retriever = new MediaMetadataRetriever();
         retriever.setDataSource(inputVideos.get(0).getAbsolutePath());
-        int combineBitrate = 5000000;
+        int combineBitrate = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE));
+        retriever.release();
         MediaExtractor extractor = new MediaExtractor();
         extractor.setDataSource(inputVideos.get(0).getAbsolutePath());
         int videoIndex = selectTrack(extractor, false);
