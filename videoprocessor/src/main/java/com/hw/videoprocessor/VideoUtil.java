@@ -223,7 +223,10 @@ public class VideoUtil {
     static long appendVideoTrack(MediaExtractor extractor, MediaMuxer mediaMuxer, int muxerVideoTrackIndex,
                                  Integer startTimeUs, Integer endTimeUs, long baseMuxerFrameTimeUs, int bitrate, int iFrameInterval,
                                  boolean isFirst, boolean isLast) throws Exception {
-        int videoTrack = selectTrack(extractor, false);
+//        int videoTrack = selectTrack(extractor, false);
+        int videoTrack = 0;
+        // Note: extractor.selectTrack fails and throws IllegalArgumentException when using the util function selectTrack that is commented above
+        // We are aware that the video is in position 0, so we don't need to use this util function, maybe it will fix the crash.
         extractor.selectTrack(videoTrack);
         if (startTimeUs == null) {
             startTimeUs = 0;
