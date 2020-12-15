@@ -75,21 +75,23 @@ public class VideoProcessor {
                 .process();
     }
 
-    public static void changeVideoSpeed(Context context, Uri input, String output, float speed) throws Exception {
+    public static void changeVideoSpeed(Context context, Uri input, String output, float speed, @Nullable VideoProgressListener progressListener) throws Exception {
         processor(context)
                 .input(input)
                 .output(output)
                 .speed(speed)
+                .progressListener(progressListener)
                 .process();
     }
 
-    public static void cutAndChangeVideoSpeed(Context context, Uri input, String output, float speed, int startTimeMs, int endTimeMs) throws Exception {
+    public static void cutAndChangeVideoSpeed(Context context, Uri input, String output, float speed, int startTimeMs, int endTimeMs, @Nullable VideoProgressListener progressListener) throws Exception {
         processor(context)
                 .input(input)
                 .output(output)
                 .startTimeMs(startTimeMs)
                 .endTimeMs(endTimeMs)
                 .speed(speed)
+                .progressListener(progressListener)
                 .process();
     }
 

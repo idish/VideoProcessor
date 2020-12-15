@@ -16,6 +16,9 @@ import android.provider.MediaStore;
 import android.util.Pair;
 import com.hw.videoprocessor.util.AudioUtil;
 import com.hw.videoprocessor.util.CL;
+import com.hw.videoprocessor.util.VideoProgressListener;
+
+import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -81,7 +84,7 @@ public class VideoUtil {
         return fileList;
     }
 
-    public static void createBoomerangVideo(List<File> inputVideos, String outputVideo) throws Exception {
+    public static void createBoomerangVideo(List<File> inputVideos, String outputVideo, @Nullable VideoProgressListener progressListener) throws Exception {
         if (inputVideos == null || inputVideos.size() == 0) {
             return;
         }
@@ -115,6 +118,9 @@ public class VideoUtil {
             CL.i("片段" + i + "已合成,audioFrameTime:" + audioFrameTimeUs / 1000f + " videoFrameTime:" + videoFrameTimeUs / 1000f);
             baseFrameTimeUs += 33 * 1000;
             extractor.release();
+            if (progressListener != null) {
+                progressListener.onProgress((i + 1) * 10);
+            }
         }
         mediaMuxer.release();
     }
