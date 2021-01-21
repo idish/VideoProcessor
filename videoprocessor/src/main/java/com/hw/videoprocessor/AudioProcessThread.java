@@ -76,7 +76,7 @@ public class AudioProcessThread extends Thread implements VideoProgressListener 
             //音频暂不支持变速
             Integer startTimeUs = mStartTimeMs == null ? null : mStartTimeMs * 1000;
             Integer endTimeUs = mEndTimeMs == null ? null : mEndTimeMs * 1000;
-            boolean await = mMuxerStartLatch.await(3, TimeUnit.SECONDS);
+            boolean await = mMuxerStartLatch.await(30, TimeUnit.SECONDS);
             if (!await) {
                 throw new TimeoutException("wait muxerStartLatch timeout!");
             }

@@ -65,15 +65,15 @@ public class VideoProcessor {
                 .outHeight(outHeight)
                 .process();
     }
-
-    public static void cutVideo(Context context, Uri input, String output, int startTimeMs, int endTimeMs) throws Exception {
-        processor(context)
-                .input(input)
-                .output(output)
-                .startTimeMs(startTimeMs)
-                .endTimeMs(endTimeMs)
-                .process();
-    }
+//
+//    public static void cutVideo(Context context, Uri input, String output, int startTimeMs, int endTimeMs) throws Exception {
+//        processor(context)
+//                .input(input)
+//                .output(output)
+//                .startTimeMs(startTimeMs)
+//                .endTimeMs(endTimeMs)
+//                .process();
+//    }
 
     public static void changeVideoSpeed(Context context, Uri input, String output, float speed, @Nullable VideoProgressListener progressListener) throws Exception {
         processor(context)
@@ -91,6 +91,17 @@ public class VideoProcessor {
                 .startTimeMs(startTimeMs)
                 .endTimeMs(endTimeMs)
                 .speed(speed)
+                .progressListener(progressListener)
+                .process();
+    }
+
+    public static void cutVideo(Context context, Uri input, boolean includeAudio, String output, int startTimeMs, @Nullable Integer endTimeMs, @Nullable VideoProgressListener progressListener) throws Exception {
+        processor(context)
+                .input(input)
+                .output(output)
+                .includeAudio(includeAudio)
+                .startTimeMs(startTimeMs)
+                .endTimeMs(endTimeMs)
                 .progressListener(progressListener)
                 .process();
     }
@@ -228,6 +239,157 @@ public class VideoProcessor {
             tempFile.delete();
             temp2File.delete();
         }
+    }
+
+    public static void processVideoAndAudio(@NotNull Context context, @NotNull Processor processor) throws Exception {
+
+        MediaMetadataRetriever retriever = new MediaMetadataRetriever();
+        processor.input.setDataSource(retriever);
+        int originWidth = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH));
+        int originHeight = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT));
+        int rotationValue = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION));
+        int oriBitrate = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE));
+        int durationMs = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION));
+        retriever.release();
+        if (processor.bitrate == null) {
+            processor.bitrate = oriBitrate;
+        }
+        if (processor.iFrameInterval == null) {
+            processor.iFrameInterval = DEFAULT_I_FRAME_INTERVAL;
+        }
+
+        int resultWidth = processor.outWidth == null ? originWidth : processor.outWidth;
+        int resultHeight = processor.outHeight == null ? originHeight : processor.outHeight;
+        resultWidth = resultWidth % 2 == 0 ? resultWidth : resultWidth + 1;
+        resultHeight = resultHeight % 2 == 0 ? resultHeight : resultHeight + 1;
+
+        if (rotationValue == 90 || rotationValue == 270) {
+            int temp = resultHeight;
+            resultHeight = resultWidth;
+            resultWidth = temp;
+        }
+
+        MediaExtractor extractor = new MediaExtractor();
+        processor.input.setDataSource(extractor);
+        int videoIndex = VideoUtil.selectTrack(extractor, false);
+        int audioIndex = VideoUtil.selectTrack(extractor, true);
+        MediaMuxer mediaMuxer = new MediaMuxer(processor.output, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
+
+        int muxerAudioTrackIndex = 0;
+        boolean shouldChangeAudioSpeed = processor.changeAudioSpeed == null ? true : processor.changeAudioSpeed;
+        Integer audioEndTimeMs = processor.endTimeMs;
+        if (audioIndex >= 0) {
+            MediaFormat audioTrackFormat = extractor.getTrackFormat(audioIndex);
+            String audioMimeType = MediaFormat.MIMETYPE_AUDIO_AAC;
+            int bitrate = getAudioBitrate(audioTrackFormat);
+            int channelCount = audioTrackFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT);
+            int sampleRate = audioTrackFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE);
+            int maxBufferSize = AudioUtil.getAudioMaxBufferSize(audioTrackFormat);
+            MediaFormat audioEncodeFormat = MediaFormat.createAudioFormat(audioMimeType, sampleRate, channelCount);//参数对应-> mime type、采样率、声道数
+            audioEncodeFormat.setInteger(MediaFormat.KEY_BIT_RATE, bitrate);//比特率
+            audioEncodeFormat.setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC);
+            audioEncodeFormat.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, maxBufferSize);
+
+            if (shouldChangeAudioSpeed) {
+                if (processor.startTimeMs != null || processor.endTimeMs != null || processor.speed != null) {
+                    long durationUs = audioTrackFormat.getLong(MediaFormat.KEY_DURATION);
+                    if (processor.startTimeMs != null && processor.endTimeMs != null) {
+                        durationUs = (processor.endTimeMs - processor.startTimeMs) * 1000;
+                    }
+                    if (processor.speed != null) {
+                        durationUs /= processor.speed;
+                    }
+                    audioEncodeFormat.setLong(MediaFormat.KEY_DURATION, durationUs);
+                }
+            } else {
+                long videoDurationUs = durationMs * 1000;
+                long audioDurationUs = audioTrackFormat.getLong(MediaFormat.KEY_DURATION);
+
+                if (processor.startTimeMs != null || processor.endTimeMs != null || processor.speed != null) {
+                    if (processor.startTimeMs != null && processor.endTimeMs != null) {
+                        videoDurationUs = (processor.endTimeMs - processor.startTimeMs) * 1000;
+                    }
+                    if (processor.speed != null) {
+                        videoDurationUs /= processor.speed;
+                    }
+                    long avDurationUs = videoDurationUs < audioDurationUs ? videoDurationUs : audioDurationUs;
+                    audioEncodeFormat.setLong(MediaFormat.KEY_DURATION, avDurationUs);
+                    audioEndTimeMs = (processor.startTimeMs == null ? 0 : processor.startTimeMs) + (int) (avDurationUs / 1000);
+                }
+            }
+
+            AudioUtil.checkCsd(audioEncodeFormat,
+                    MediaCodecInfo.CodecProfileLevel.AACObjectLC,
+                    sampleRate,
+                    channelCount
+            );
+            //提前推断出音頻格式加到MeidaMuxer，不然实际上应该到音频预处理完才能addTrack，会卡住视频编码的进度
+            muxerAudioTrackIndex = mediaMuxer.addTrack(audioEncodeFormat);
+        }
+
+        extractor.selectTrack(videoIndex);
+        if (processor.startTimeMs != null) {
+            extractor.seekTo(processor.startTimeMs * 1000, MediaExtractor.SEEK_TO_PREVIOUS_SYNC);
+        } else {
+            extractor.seekTo(0, MediaExtractor.SEEK_TO_PREVIOUS_SYNC);
+        }
+
+        VideoProgressAve progressAve = new VideoProgressAve(processor.listener);
+        progressAve.setSpeed(processor.speed);
+        progressAve.setStartTimeMs(processor.startTimeMs == null ? 0 : processor.startTimeMs);
+        progressAve.setEndTimeMs(processor.endTimeMs == null ? durationMs : processor.endTimeMs);
+        AtomicBoolean decodeDone = new AtomicBoolean(false);
+        CountDownLatch muxerStartLatch = new CountDownLatch(1);
+
+        int srcFrameRate = VideoUtil.getFrameRate(processor.input);
+        if (srcFrameRate <= 0) {
+            srcFrameRate = (int) Math.ceil(VideoUtil.getAveFrameRate(processor.input));
+        }
+
+        VideoEncodeThread encodeThread = new VideoEncodeThread(extractor, mediaMuxer,processor.bitrate,
+                resultWidth, resultHeight, processor.iFrameInterval, processor.frameRate == null ? srcFrameRate : processor.frameRate, videoIndex,
+                decodeDone, muxerStartLatch);
+        VideoDecodeThread decodeThread = new VideoDecodeThread(encodeThread, extractor, processor.startTimeMs, processor.endTimeMs, srcFrameRate,
+                processor.frameRate == null ? srcFrameRate : processor.frameRate, processor.speed, processor.dropFrames, videoIndex, decodeDone);
+
+        AudioProcessThread audioProcessThread = new AudioProcessThread(context, processor.input, mediaMuxer, processor.startTimeMs, audioEndTimeMs,
+                shouldChangeAudioSpeed ? processor.speed : null, muxerAudioTrackIndex, muxerStartLatch);
+        encodeThread.setProgressAve(progressAve);
+        audioProcessThread.setProgressAve(progressAve);
+
+        decodeThread.start();
+        encodeThread.start();
+        audioProcessThread.start();
+        try {
+            long s = System.currentTimeMillis();
+            decodeThread.join();
+            encodeThread.join();
+            long e1 = System.currentTimeMillis();
+            audioProcessThread.join();
+            long e2 = System.currentTimeMillis();
+            CL.w(String.format("编解码:%dms,音频:%dms", e1 - s, e1 - s));
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+
+        try {
+            mediaMuxer.release();
+            extractor.release();
+        } catch (Exception e2) {
+            CL.e(e2);
+        }
+        if (encodeThread.getException() != null) {
+            throw encodeThread.getException();
+        } else if (decodeThread.getException() != null) {
+            throw decodeThread.getException();
+        } else if (audioProcessThread.getException() != null) {
+            throw audioProcessThread.getException();
+        }
+    }
+
+
+    public static void process(@NotNull Context context, @NotNull Processor processor) throws Exception {
+
     }
 
     /**
@@ -969,6 +1131,8 @@ public class VideoProcessor {
         private Integer iFrameInterval;
         @Nullable
         private VideoProgressListener listener;
+        @Nullable
+        private Boolean includeAudio;
         /**
          * 帧率超过指定帧率时是否丢帧
          */
@@ -997,6 +1161,11 @@ public class VideoProcessor {
             return this;
         }
 
+        public Processor includeAudio(boolean includeAudio) {
+            this.includeAudio = includeAudio;
+            return this;
+        }
+
         public Processor outWidth(int outWidth) {
             this.outWidth = outWidth;
             return this;
@@ -1012,7 +1181,7 @@ public class VideoProcessor {
             return this;
         }
 
-        public Processor endTimeMs(int endTimeMs) {
+        public Processor endTimeMs(@Nullable Integer endTimeMs) {
             this.endTimeMs = endTimeMs;
             return this;
         }
@@ -1056,7 +1225,11 @@ public class VideoProcessor {
         }
 
         public void process() throws Exception {
-            processVideo(context, this);
+            if (includeAudio != null && includeAudio) {
+                processVideoAndAudio(context, this);
+            } else {
+                processVideo(context, this);
+            }
         }
     }
 
