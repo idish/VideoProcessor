@@ -73,8 +73,13 @@ public class VideoAppendEncodeThread extends Thread implements IVideoEncodeThrea
             mException = e;
         } finally {
             if (mEncoder != null) {
-                mEncoder.stop();
-                mEncoder.release();
+                try {
+                    mEncoder.stop();
+                    mEncoder.release();
+                } catch (IllegalStateException e) {
+                    // If this is thrown, the codec is already in released state
+                    e.printStackTrace();
+                }
             }
         }
     }
