@@ -11,6 +11,7 @@ import android.media.MediaMetadataRetriever;
 import android.media.MediaMuxer;
 import android.media.MediaRecorder;
 import android.net.Uri;
+import android.util.Log;
 import android.util.Pair;
 import com.hw.videoprocessor.util.AudioFadeUtil;
 import com.hw.videoprocessor.util.AudioUtil;
