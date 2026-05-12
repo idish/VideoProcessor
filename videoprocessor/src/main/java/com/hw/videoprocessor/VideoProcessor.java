@@ -41,6 +41,8 @@ import static com.hw.videoprocessor.util.AudioUtil.getAudioBitrate;
 public class VideoProcessor {
     final static String TAG = "VideoProcessor";
     final static String OUTPUT_MIME_TYPE = "video/avc";
+    private static final int DEFAULT_FALLBACK_BITRATE = 8 * 1000 * 1000;
+    private static final int MIN_VALID_DURATION_MS = 1;
 
     public static int DEFAULT_FRAME_RATE = 20;
     /**
@@ -55,6 +57,213 @@ public class VideoProcessor {
     public static boolean AUDIO_MIX_REPEAT = true;
 
     final static int TIMEOUT_USEC = 2500;
+
+    private static final class VideoMetadata {
+        final int width;
+        final int height;
+        final int rotation;
+        final int bitrate;
+        final int durationMs;
+
+        VideoMetadata(int width, int height, int rotation, int bitrate, int durationMs) {
+            this.width = width;
+            this.height = height;
+            this.rotation = rotation;
+            this.bitrate = bitrate;
+            this.durationMs = durationMs;
+        }
+    }
+
+    @Nullable
+    private static Integer getMetadataIntOrNull(MediaMetadataRetriever retriever, int key) {
+        String value = retriever.extractMetadata(key);
+        if (value == null) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    @Nullable
+    private static Integer getTrackIntOrNull(MediaFormat trackFormat, String key) {
+        if (trackFormat != null && trackFormat.containsKey(key)) {
+            return trackFormat.getInteger(key);
+        }
+        return null;
+    }
+
+    @Nullable
+    private static Integer getTrackDurationMsOrNull(MediaFormat trackFormat) {
+        if (trackFormat == null || !trackFormat.containsKey(MediaFormat.KEY_DURATION)) {
+            return null;
+        }
+        long durationUs = trackFormat.getLong(MediaFormat.KEY_DURATION);
+        if (durationUs <= 0L) {
+            return null;
+        }
+        long durationMs = durationUs / 1000L;
+        if (durationMs <= 0L) {
+            return MIN_VALID_DURATION_MS;
+        }
+        return durationMs > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) durationMs;
+    }
+
+    private static MediaFormat getVideoTrackFormat(MediaSource input) throws IOException {
+        MediaExtractor extractor = new MediaExtractor();
+        try {
+            input.setDataSource(extractor);
+            int videoTrackIndex = VideoUtil.selectTrack(extractor, false);
+            if (videoTrackIndex < 0) {
+                throw new IOException("No video track found while resolving metadata.");
+            }
+            return extractor.getTrackFormat(videoTrackIndex);
+        } finally {
+            try {
+                extractor.release();
+            } catch (Exception e) {
+                CL.e(e);
+            }
+        }
+    }
+
+    private static int resolveBitrate(MediaSource input, @Nullable Integer preferredBitrate) throws IOException {
+        if (preferredBitrate != null && preferredBitrate > 0) {
+            return preferredBitrate;
+        }
+
+        Integer metadataBitrate = null;
+        MediaMetadataRetriever retriever = new MediaMetadataRetriever();
+        try {
+            input.setDataSource(retriever);
+            metadataBitrate = getMetadataIntOrNull(retriever, MediaMetadataRetriever.METADATA_KEY_BITRATE);
+        } finally {
+            retriever.release();
+        }
+        if (metadataBitrate != null && metadataBitrate > 0) {
+            return metadataBitrate;
+        }
+
+        MediaFormat trackFormat = getVideoTrackFormat(input);
+        Integer trackBitrate = getTrackIntOrNull(trackFormat, MediaFormat.KEY_BIT_RATE);
+        if (trackBitrate != null && trackBitrate > 0) {
+            CL.w("METADATA_KEY_BITRATE missing/invalid, fallback to MediaFormat.KEY_BIT_RATE");
+            return trackBitrate;
+        }
+
+        CL.w("METADATA_KEY_BITRATE and MediaFormat.KEY_BIT_RATE missing, fallback to default bitrate: " + DEFAULT_FALLBACK_BITRATE);
+        return DEFAULT_FALLBACK_BITRATE;
+    }
+
+    private static int resolveDurationMs(MediaSource input) throws IOException {
+        Integer metadataDuration = null;
+        MediaMetadataRetriever retriever = new MediaMetadataRetriever();
+        try {
+            input.setDataSource(retriever);
+            metadataDuration = getMetadataIntOrNull(retriever, MediaMetadataRetriever.METADATA_KEY_DURATION);
+        } finally {
+            retriever.release();
+        }
+        if (metadataDuration != null && metadataDuration > 0) {
+            return metadataDuration;
+        }
+
+        MediaFormat trackFormat = getVideoTrackFormat(input);
+        Integer durationMsFromTrack = getTrackDurationMsOrNull(trackFormat);
+        if (durationMsFromTrack != null && durationMsFromTrack > 0) {
+            CL.w("METADATA_KEY_DURATION missing/invalid, fallback to MediaFormat.KEY_DURATION");
+            return durationMsFromTrack;
+        }
+
+        CL.w("METADATA_KEY_DURATION and MediaFormat.KEY_DURATION missing, fallback to minimum duration.");
+        return MIN_VALID_DURATION_MS;
+    }
+
+    private static VideoMetadata resolveVideoMetadata(MediaSource input, @Nullable Integer preferredBitrate) throws IOException {
+        Integer metadataWidth;
+        Integer metadataHeight;
+        Integer metadataRotation;
+        Integer metadataDuration;
+        Integer metadataBitrate;
+
+        MediaMetadataRetriever retriever = new MediaMetadataRetriever();
+        try {
+            input.setDataSource(retriever);
+            metadataWidth = getMetadataIntOrNull(retriever, MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH);
+            metadataHeight = getMetadataIntOrNull(retriever, MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT);
+            metadataRotation = getMetadataIntOrNull(retriever, MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION);
+            metadataDuration = getMetadataIntOrNull(retriever, MediaMetadataRetriever.METADATA_KEY_DURATION);
+            metadataBitrate = getMetadataIntOrNull(retriever, MediaMetadataRetriever.METADATA_KEY_BITRATE);
+        } finally {
+            retriever.release();
+        }
+
+        MediaFormat trackFormat = getVideoTrackFormat(input);
+        Integer trackWidth = getTrackIntOrNull(trackFormat, MediaFormat.KEY_WIDTH);
+        Integer trackHeight = getTrackIntOrNull(trackFormat, MediaFormat.KEY_HEIGHT);
+        Integer trackRotation = getTrackIntOrNull(trackFormat, MediaFormat.KEY_ROTATION);
+        Integer trackBitrate = getTrackIntOrNull(trackFormat, MediaFormat.KEY_BIT_RATE);
+        Integer trackDurationMs = getTrackDurationMsOrNull(trackFormat);
+
+        int width;
+        if (metadataWidth != null && metadataWidth > 0) {
+            width = metadataWidth;
+        } else if (trackWidth != null && trackWidth > 0) {
+            CL.w("METADATA_KEY_VIDEO_WIDTH missing/invalid, fallback to MediaFormat.KEY_WIDTH");
+            width = trackWidth;
+        } else {
+            throw new IOException("Unable to resolve video width.");
+        }
+
+        int height;
+        if (metadataHeight != null && metadataHeight > 0) {
+            height = metadataHeight;
+        } else if (trackHeight != null && trackHeight > 0) {
+            CL.w("METADATA_KEY_VIDEO_HEIGHT missing/invalid, fallback to MediaFormat.KEY_HEIGHT");
+            height = trackHeight;
+        } else {
+            throw new IOException("Unable to resolve video height.");
+        }
+
+        int rotation;
+        if (metadataRotation != null) {
+            rotation = metadataRotation;
+        } else if (trackRotation != null) {
+            CL.w("METADATA_KEY_VIDEO_ROTATION missing/invalid, fallback to MediaFormat.KEY_ROTATION");
+            rotation = trackRotation;
+        } else {
+            CL.w("METADATA_KEY_VIDEO_ROTATION missing and no track rotation, fallback to 0");
+            rotation = 0;
+        }
+
+        int bitrate;
+        if (preferredBitrate != null && preferredBitrate > 0) {
+            bitrate = preferredBitrate;
+        } else if (metadataBitrate != null && metadataBitrate > 0) {
+            bitrate = metadataBitrate;
+        } else if (trackBitrate != null && trackBitrate > 0) {
+            CL.w("METADATA_KEY_BITRATE missing/invalid, fallback to MediaFormat.KEY_BIT_RATE");
+            bitrate = trackBitrate;
+        } else {
+            CL.w("METADATA_KEY_BITRATE and MediaFormat.KEY_BIT_RATE missing, fallback to default bitrate: " + DEFAULT_FALLBACK_BITRATE);
+            bitrate = DEFAULT_FALLBACK_BITRATE;
+        }
+
+        int durationMs;
+        if (metadataDuration != null && metadataDuration > 0) {
+            durationMs = metadataDuration;
+        } else if (trackDurationMs != null && trackDurationMs > 0) {
+            CL.w("METADATA_KEY_DURATION missing/invalid, fallback to MediaFormat.KEY_DURATION");
+            durationMs = trackDurationMs;
+        } else {
+            CL.w("METADATA_KEY_DURATION and MediaFormat.KEY_DURATION missing, fallback to minimum duration.");
+            durationMs = MIN_VALID_DURATION_MS;
+        }
+
+        return new VideoMetadata(width, height, rotation, bitrate, durationMs);
+    }
 
 
     public static void scaleVideo(Context context, Uri input, String output,
@@ -140,10 +349,8 @@ public class VideoProcessor {
             VideoMultiStepProgress stepProgress = new VideoMultiStepProgress(new float[]{0.45f, 0.1f, 0.45f}, listener);
             stepProgress.setCurrentStep(0);
             float bitrateMultiple = (frameCount - keyFrameCount) / (float) keyFrameCount + 1;
-            MediaMetadataRetriever retriever = new MediaMetadataRetriever();
-            input.setDataSource(retriever);
-            int oriBitrate = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE));
-            int duration = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION));
+            int oriBitrate = resolveBitrate(input, null);
+            int duration = resolveDurationMs(input);
             try {
                 processor(context)
                         .input(input)
@@ -201,10 +408,8 @@ public class VideoProcessor {
                 VideoMultiStepProgress stepProgress = new VideoMultiStepProgress(new float[]{0.45f, 0.1f, 0.45f}, listener);
                 stepProgress.setCurrentStep(0);
                 float bitrateMultiple = (frameCount - keyFrameCount) / (float) keyFrameCount + 1;
-                MediaMetadataRetriever retriever = new MediaMetadataRetriever();
-                input.setDataSource(retriever);
-                int oriBitrate = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE));
-                int duration = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION));
+                int oriBitrate = resolveBitrate(input, null);
+                int duration = resolveDurationMs(input);
                 try {
                     processor(context)
                             .input(input)
@@ -244,14 +449,12 @@ public class VideoProcessor {
 
     public static void processVideoAndAudio(@NotNull Context context, @NotNull Processor processor) throws Exception {
 
-        MediaMetadataRetriever retriever = new MediaMetadataRetriever();
-        processor.input.setDataSource(retriever);
-        int originWidth = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH));
-        int originHeight = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT));
-        int rotationValue = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION));
-        int oriBitrate = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE));
-        int durationMs = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION));
-        retriever.release();
+        VideoMetadata metadata = resolveVideoMetadata(processor.input, processor.bitrate);
+        int originWidth = metadata.width;
+        int originHeight = metadata.height;
+        int rotationValue = metadata.rotation;
+        int oriBitrate = metadata.bitrate;
+        int durationMs = metadata.durationMs;
         if (processor.bitrate == null) {
             processor.bitrate = oriBitrate;
         }
@@ -398,14 +601,12 @@ public class VideoProcessor {
      */
     public static void processVideo(@NotNull Context context, @NotNull Processor processor) throws Exception {
 
-        MediaMetadataRetriever retriever = new MediaMetadataRetriever();
-        processor.input.setDataSource(retriever);
-        int originWidth = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH));
-        int originHeight = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT));
-        int rotationValue = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION));
-        int oriBitrate = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE));
-        int durationMs = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION));
-        retriever.release();
+        VideoMetadata metadata = resolveVideoMetadata(processor.input, processor.bitrate);
+        int originWidth = metadata.width;
+        int originHeight = metadata.height;
+        int rotationValue = metadata.rotation;
+        int oriBitrate = metadata.bitrate;
+        int durationMs = metadata.durationMs;
         if (processor.bitrate == null) {
             processor.bitrate = oriBitrate;
         }
@@ -488,10 +689,7 @@ public class VideoProcessor {
      * 直接对视频进行逆序,用于所有帧都是关键帧的情况
      */
     public static void reverseVideoNoDecode(MediaSource input, String output, boolean reverseAudio, List<Long> videoFrameTimeStamps, @Nullable VideoProgressListener listener) throws IOException {
-        MediaMetadataRetriever retriever = new MediaMetadataRetriever();
-        input.setDataSource(retriever);
-        int durationMs = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION));
-        retriever.release();
+        int durationMs = resolveDurationMs(input);
 
         MediaExtractor extractor = new MediaExtractor();
         input.setDataSource(extractor);

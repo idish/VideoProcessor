@@ -37,6 +37,88 @@ import static com.hw.videoprocessor.VideoProcessor.DEFAULT_I_FRAME_INTERVAL;
  */
 
 public class VideoUtil {
+    private static final int DEFAULT_FALLBACK_BITRATE = 8 * 1000 * 1000;
+
+    @Nullable
+    private static Integer getMetadataIntOrNull(MediaMetadataRetriever retriever, int key) {
+        String value = retriever.extractMetadata(key);
+        if (value == null) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
+    }
+
+    private static int resolveBitrate(String inputPath) throws IOException {
+        MediaMetadataRetriever retriever = new MediaMetadataRetriever();
+        try {
+            retriever.setDataSource(inputPath);
+            Integer metadataBitrate = getMetadataIntOrNull(retriever, MediaMetadataRetriever.METADATA_KEY_BITRATE);
+            if (metadataBitrate != null && metadataBitrate > 0) {
+                return metadataBitrate;
+            }
+        } finally {
+            retriever.release();
+        }
+
+        MediaExtractor extractor = new MediaExtractor();
+        try {
+            extractor.setDataSource(inputPath);
+            int videoIndex = selectTrack(extractor, false);
+            if (videoIndex >= 0) {
+                MediaFormat format = extractor.getTrackFormat(videoIndex);
+                if (format.containsKey(MediaFormat.KEY_BIT_RATE)) {
+                    int trackBitrate = format.getInteger(MediaFormat.KEY_BIT_RATE);
+                    if (trackBitrate > 0) {
+                        CL.w("METADATA_KEY_BITRATE missing/invalid, fallback to MediaFormat.KEY_BIT_RATE");
+                        return trackBitrate;
+                    }
+                }
+            }
+        } finally {
+            extractor.release();
+        }
+
+        CL.w("METADATA_KEY_BITRATE and MediaFormat.KEY_BIT_RATE missing, fallback to default bitrate: " + DEFAULT_FALLBACK_BITRATE);
+        return DEFAULT_FALLBACK_BITRATE;
+    }
+
+    private static int resolveBitrate(VideoProcessor.MediaSource input) throws IOException {
+        MediaMetadataRetriever retriever = new MediaMetadataRetriever();
+        try {
+            input.setDataSource(retriever);
+            Integer metadataBitrate = getMetadataIntOrNull(retriever, MediaMetadataRetriever.METADATA_KEY_BITRATE);
+            if (metadataBitrate != null && metadataBitrate > 0) {
+                return metadataBitrate;
+            }
+        } finally {
+            retriever.release();
+        }
+
+        MediaExtractor extractor = new MediaExtractor();
+        try {
+            input.setDataSource(extractor);
+            int videoIndex = selectTrack(extractor, false);
+            if (videoIndex >= 0) {
+                MediaFormat format = extractor.getTrackFormat(videoIndex);
+                if (format.containsKey(MediaFormat.KEY_BIT_RATE)) {
+                    int trackBitrate = format.getInteger(MediaFormat.KEY_BIT_RATE);
+                    if (trackBitrate > 0) {
+                        CL.w("METADATA_KEY_BITRATE missing/invalid, fallback to MediaFormat.KEY_BIT_RATE");
+                        return trackBitrate;
+                    }
+                }
+            }
+        } finally {
+            extractor.release();
+        }
+
+        CL.w("METADATA_KEY_BITRATE and MediaFormat.KEY_BIT_RATE missing, fallback to default bitrate: " + DEFAULT_FALLBACK_BITRATE);
+        return DEFAULT_FALLBACK_BITRATE;
+    }
 
     /**
      * @param inputVideo
@@ -89,10 +171,7 @@ public class VideoUtil {
             return;
         }
         int iFrameInterval = DEFAULT_I_FRAME_INTERVAL;
-        MediaMetadataRetriever retriever = new MediaMetadataRetriever();
-        retriever.setDataSource(inputVideos.get(0).getAbsolutePath());
-        int combineBitrate = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE));
-        retriever.release();
+        int combineBitrate = resolveBitrate(inputVideos.get(0).getAbsolutePath());
         MediaExtractor extractor = new MediaExtractor();
         extractor.setDataSource(inputVideos.get(0).getAbsolutePath());
         int videoIndex = selectTrack(extractor, false);
@@ -137,9 +216,7 @@ public class VideoUtil {
         if (inputVideos == null || inputVideos.size() == 0) {
             return;
         }
-        MediaMetadataRetriever retriever = new MediaMetadataRetriever();
-        retriever.setDataSource(inputVideos.get(0).getAbsolutePath());
-        int combineBitrate = bitrate == null ? Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE)) : bitrate;
+        int combineBitrate = bitrate == null ? resolveBitrate(inputVideos.get(0).getAbsolutePath()) : bitrate;
         MediaExtractor extractor = new MediaExtractor();
         extractor.setDataSource(inputVideos.get(0).getAbsolutePath());
         int videoIndex = selectTrack(extractor, false);
@@ -293,10 +370,7 @@ public class VideoUtil {
         }
         extractor.release();
         float bitrateMultiple = (frameCount - keyFrameCount) / (float) keyFrameCount + 1;
-        MediaMetadataRetriever retriever = new MediaMetadataRetriever();
-        input.setDataSource(retriever);
-        int oriBitrate = Integer.parseInt(retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE));
-        retriever.release();
+        int oriBitrate = resolveBitrate(input);
         if (frameCount == keyFrameCount) {
             return oriBitrate;
         }
