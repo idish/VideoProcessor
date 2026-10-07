@@ -12,8 +12,6 @@ import android.util.Pair;
 import com.hw.videoprocessor.VideoProcessor;
 import com.hw.videoprocessor.VideoUtil;
 import com.hw.videoprocessor.jssrc.SSRC;
-import net.surina.soundtouch.SoundTouch;
-
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -394,7 +392,7 @@ public class AudioUtil {
         ByteBuffer buffer = ByteBuffer.allocateDirect(maxBufferSize);
         MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
 
-        //调整音频速率需要重解码音频帧
+        // Decode the source audio into raw PCM before re-encoding it as AAC.
         MediaCodec decoder = MediaCodec.createDecoderByType(oriAudioFormat.getString(MediaFormat.KEY_MIME));
         decoder.configure(oriAudioFormat, null, null, 0);
         decoder.start();
@@ -682,11 +680,11 @@ public class AudioUtil {
     }
 
     /**
-     * 需要改变音频速率的情况下，需要先解码->改变速率->编码
+     * Decodes a non-AAC audio track to PCM and re-encodes it as AAC.
      */
     public static void writeAudioTrackDecode(Context context, MediaExtractor extractor, MediaMuxer mediaMuxer, int muxerAudioTrackIndex,
                                              Integer startTimeUs, Integer endTimeUs,
-                                             @NotNull Float speed, @Nullable VideoProgressListener listener) throws Exception {
+                                             @Nullable VideoProgressListener listener) throws Exception {
         int audioTrack = VideoUtil.selectTrack(extractor, true);
         extractor.selectTrack(audioTrack);
         if (startTimeUs == null) {
@@ -786,25 +784,12 @@ public class AudioUtil {
             channelConfig = AudioFormat.CHANNEL_IN_STEREO;
         }
         new PcmToWavUtil(sampleRate, channelConfig, oriChannelCount, AudioFormat.ENCODING_PCM_16BIT).pcmToWav(pcmFile.getAbsolutePath(), wavFile.getAbsolutePath());
-        //开始处理pcm
-        CL.i("start process pcm speed");
-        File outFile = new File(context.getCacheDir(), pcmFile.getName() + ".outpcm");
-        SoundTouch st = new SoundTouch();
-        st.setTempo(speed);
-
-        int res = st.processFile(wavFile.getAbsolutePath(), outFile.getAbsolutePath());
-        if (res < 0) {
-            pcmFile.delete();
-            wavFile.delete();
-            outFile.delete();
-            return;
-        }
-        //重新将速率变化过后的pcm写入
-        MediaExtractor pcmExtrator = new MediaExtractor();
-        pcmExtrator.setDataSource(outFile.getAbsolutePath());
-        audioTrack = VideoUtil.selectTrack(pcmExtrator, true);
-        pcmExtrator.selectTrack(audioTrack);
-        MediaFormat pcmTrackFormat = pcmExtrator.getTrackFormat(audioTrack);
+        // Feed the decoded WAV directly into the AAC encoder. Audio tempo changes are not supported.
+        MediaExtractor pcmExtractor = new MediaExtractor();
+        pcmExtractor.setDataSource(wavFile.getAbsolutePath());
+        audioTrack = VideoUtil.selectTrack(pcmExtractor, true);
+        pcmExtractor.selectTrack(audioTrack);
+        MediaFormat pcmTrackFormat = pcmExtractor.getTrackFormat(audioTrack);
         maxBufferSize = getAudioMaxBufferSize(pcmTrackFormat);
         durationUs = pcmTrackFormat.getLong(MediaFormat.KEY_DURATION);
         buffer = ByteBuffer.allocateDirect(maxBufferSize);
@@ -827,21 +812,21 @@ public class AudioUtil {
             while (!encodeDone) {
                 int inputBufferIndex = encoder.dequeueInputBuffer(TIMEOUT_US);
                 if (!encodeInputDone && inputBufferIndex >= 0) {
-                    long sampleTime = pcmExtrator.getSampleTime();
+                    long sampleTime = pcmExtractor.getSampleTime();
                     if (sampleTime < 0) {
                         encodeInputDone = true;
                         encoder.queueInputBuffer(inputBufferIndex, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
                     } else {
-                        int flags = pcmExtrator.getSampleFlags();
+                        int flags = pcmExtractor.getSampleFlags();
                         buffer.clear();
-                        int size = pcmExtrator.readSampleData(buffer, 0);
+                        int size = pcmExtractor.readSampleData(buffer, 0);
                         ByteBuffer inputBuffer = encoder.getInputBuffer(inputBufferIndex);
                         inputBuffer.clear();
                         inputBuffer.put(buffer);
                         inputBuffer.position(0);
                         CL.i("audio queuePcmBuffer " + sampleTime / 1000 + " size:" + size);
                         encoder.queueInputBuffer(inputBufferIndex, 0, size, sampleTime, flags);
-                        pcmExtrator.advance();
+                        pcmExtractor.advance();
                     }
                 }
 
@@ -893,8 +878,7 @@ public class AudioUtil {
         } finally {
             pcmFile.delete();
             wavFile.delete();
-            outFile.delete();
-            pcmExtrator.release();
+            pcmExtractor.release();
             encoder.release();
         }
     }

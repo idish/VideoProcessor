@@ -480,7 +480,6 @@ public class VideoProcessor {
         MediaMuxer mediaMuxer = new MediaMuxer(processor.output, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
 
         int muxerAudioTrackIndex = 0;
-        boolean shouldChangeAudioSpeed = processor.changeAudioSpeed == null ? true : processor.changeAudioSpeed;
         Integer audioEndTimeMs = processor.endTimeMs;
         if (audioIndex >= 0) {
             MediaFormat audioTrackFormat = extractor.getTrackFormat(audioIndex);
@@ -494,32 +493,12 @@ public class VideoProcessor {
             audioEncodeFormat.setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC);
             audioEncodeFormat.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, maxBufferSize);
 
-            if (shouldChangeAudioSpeed) {
-                if (processor.startTimeMs != null || processor.endTimeMs != null || processor.speed != null) {
-                    long durationUs = audioTrackFormat.getLong(MediaFormat.KEY_DURATION);
-                    if (processor.startTimeMs != null && processor.endTimeMs != null) {
-                        durationUs = (processor.endTimeMs - processor.startTimeMs) * 1000;
-                    }
-                    if (processor.speed != null) {
-                        durationUs /= processor.speed;
-                    }
-                    audioEncodeFormat.setLong(MediaFormat.KEY_DURATION, durationUs);
+            if (processor.startTimeMs != null || processor.endTimeMs != null) {
+                long durationUs = audioTrackFormat.getLong(MediaFormat.KEY_DURATION);
+                if (processor.startTimeMs != null && processor.endTimeMs != null) {
+                    durationUs = (processor.endTimeMs - processor.startTimeMs) * 1000L;
                 }
-            } else {
-                long videoDurationUs = durationMs * 1000;
-                long audioDurationUs = audioTrackFormat.getLong(MediaFormat.KEY_DURATION);
-
-                if (processor.startTimeMs != null || processor.endTimeMs != null || processor.speed != null) {
-                    if (processor.startTimeMs != null && processor.endTimeMs != null) {
-                        videoDurationUs = (processor.endTimeMs - processor.startTimeMs) * 1000;
-                    }
-                    if (processor.speed != null) {
-                        videoDurationUs /= processor.speed;
-                    }
-                    long avDurationUs = videoDurationUs < audioDurationUs ? videoDurationUs : audioDurationUs;
-                    audioEncodeFormat.setLong(MediaFormat.KEY_DURATION, avDurationUs);
-                    audioEndTimeMs = (processor.startTimeMs == null ? 0 : processor.startTimeMs) + (int) (avDurationUs / 1000);
-                }
+                audioEncodeFormat.setLong(MediaFormat.KEY_DURATION, durationUs);
             }
 
             AudioUtil.checkCsd(audioEncodeFormat,
@@ -557,7 +536,7 @@ public class VideoProcessor {
                 processor.frameRate == null ? srcFrameRate : processor.frameRate, processor.speed, processor.dropFrames, videoIndex, decodeDone);
 
         AudioProcessThread audioProcessThread = new AudioProcessThread(context, processor.input, mediaMuxer, processor.startTimeMs, audioEndTimeMs,
-                shouldChangeAudioSpeed ? processor.speed : null, muxerAudioTrackIndex, muxerStartLatch);
+                muxerAudioTrackIndex, muxerStartLatch);
         encodeThread.setProgressAve(progressAve);
         audioProcessThread.setProgressAve(progressAve);
 
@@ -1321,8 +1300,6 @@ public class VideoProcessor {
         @Nullable
         private Float speed;
         @Nullable
-        private Boolean changeAudioSpeed;
-        @Nullable
         private Integer bitrate;
         @Nullable
         private Integer frameRate;
@@ -1390,11 +1367,6 @@ public class VideoProcessor {
             return this;
         }
 
-        public Processor changeAudioSpeed(boolean changeAudioSpeed) {
-            this.changeAudioSpeed = changeAudioSpeed;
-            return this;
-        }
-
         public Processor bitrate(int bitrate) {
             this.bitrate = bitrate;
             return this;
@@ -1424,6 +1396,11 @@ public class VideoProcessor {
         }
 
         public void process() throws Exception {
+            if (Boolean.TRUE.equals(includeAudio) && speed != null && Float.compare(speed, 1f) != 0) {
+                throw new UnsupportedOperationException(
+                        "Audio-preserving speed changes are not supported. Process video without audio or use speed 1.0."
+                );
+            }
             if (includeAudio != null && includeAudio) {
                 processVideoAndAudio(context, this);
             } else {
